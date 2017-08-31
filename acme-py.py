@@ -2,6 +2,7 @@
 
 import argparse
 import subprocess
+import json
 import sys
 import base64
 import binascii
@@ -10,8 +11,12 @@ import logging
 
 try:
     from urllib.request import urlopen
+    from urllib.request import Request
+    from urllib.error   import HTTPError
 except ImportError:
     from urllib2 import urlopen
+    from urllib2 import Request
+    from urllib2 import HTTPError
 
 # Default config
 CA_API_URL = "https://acme-staging.api.letsencrypt.org"
@@ -56,7 +61,7 @@ def ssl_rsa_signsha256(private_key, data, log=LOGGER):
 
     return out
 
-def create_jws(private_key, jwk, payload = {}):
+def create_jws(private_key, jwk, nonce, payload = {}):
     header = {}
     header["alg"] = "RS256"
     header["jwk"] = jwk
@@ -64,8 +69,7 @@ def create_jws(private_key, jwk, payload = {}):
     payloaddata = tobase64(json.dumps(payload).encode('utf8'))
 
     protected = {}
-    # TODO: fetch nonce
-    protected["nonce"] = ""
+    protected["nonce"] = nonce
     protecteddata = tobase64(json.dumps(protected).encode('utf8'))
 
     signdata = "%s.%s" % (protecteddata, payloaddata)
@@ -73,6 +77,39 @@ def create_jws(private_key, jwk, payload = {}):
     signature = tobase64(signature)
 
     return json.dumps({"header":header, "payload": payloaddata, "protected": protecteddata, "signature": signature})
+
+def httpquery(url = "", data = None, headers = {}, timeout = 60, log = LOGGER):
+    log.debug("Sending a HTTP request to " + url)
+
+    try:
+        req = Request(url, data = data, headers = headers)
+        r = urlopen(req, timeout = timeout)
+    except HTTPError as e:
+        r = e
+    except Exception as e:
+        return { "status": -1, "error": str(e) }
+
+    headers = {}
+
+    for h, v in r.info().items():
+        headers[h.lower()] = v
+
+    response = {
+        "status": r.code,
+        "error": "http error %d %s" % (r.code, r.msg),
+        "headers": headers,
+        "body": r.read()
+    }
+
+    if "content-type" in response["headers"]:
+        if response["headers"]["content-type"].lower() == "application/json":
+            response["jsonbody"] = json.loads(response["body"])
+        if response["headers"]["content-type"].lower() == "application/problem+json":
+            response["jsonbody"] = json.loads(response["body"])
+
+    log.debug("Response: " + str(response))
+
+    return response
 
 def get_crt(account_key, csr, log=LOGGER):
     # parse account key to get public key
@@ -92,8 +129,24 @@ def get_crt(account_key, csr, log=LOGGER):
     jwk_string = '{"e":"%s","kty","RSA","n","%s"}' % (tobase64(e), tobase64(n))
     thumbprint = tobase64(hashlib.sha256(jwk_string.encode('utf8')).digest())
     log.debug("JWK thumbprint created")
-
     log.info('Parsed!')
+
+    # get the ACME urls from the server
+    acmenonce = None
+
+    def _httpquery(url = "", data = None, headers = {}, timeout = 60):
+        response = httpquery(url = url, data = data, headers = headers, timeout = timeout)
+        if response["status"] != -1:
+            acmenonce = response["headers"]["replay-nonce"]
+        return response
+
+    log.debug("Asking server for ACME urls")
+    response = _httpquery(CA_API_URL + "/" + API_DIR_NAME)
+
+    # find domains
+    log.info("Parsing CSR...")
+
+    # TODO: parse the CSR
 
 def main(argv):
     parser = argparse.ArgumentParser()
