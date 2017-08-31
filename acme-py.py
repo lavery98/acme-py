@@ -30,7 +30,38 @@ LOGGER.addHandler(logging.StreamHandler())
 LOGGER.setLevel(logging.INFO)
 
 def tobase64(x):
-    return base64.urlsafe_b64encode(x).decode('utf8').replace("=", "")
+    return tostr(base64.urlsafe_b64encode(tobytes(x))).replace("=", "")
+
+def tostr(x):
+    if isinstance(x, str):
+        return x
+    if isinstance(x, bytes):
+        r = ""
+        if len(x) > 0 and isinstance(x[0], int):
+            for ch in x: r += chr(ch)
+        else:
+            for ch in x: r += ch
+        return r
+    raise TypeError("tostr() accepts only <type 'str'> or <class 'bytes'> not %s" % (type(x)))
+
+def tobytes(x):
+    try:
+        if isinstance(x, unicode):
+            x = str(x)
+    except NameError:
+        pass
+
+    if isinstance(x, bytes):
+        return x
+    if isinstance(x, str):
+        r = []
+        for ch in x:
+            r.append(ord(ch))
+        return bytes(r)
+    raise TypeError("tobytes() accepts only <type 'str'> or <class 'bytes'> not %s" % (type(x)))
+
+def tojson(x):
+    return tobytes(json.dumps(x))
 
 def ssl_rsa_get_public_key(private_key, log=LOGGER):
     log.debug("Calling OpenSSL to get public key from private key")
@@ -40,7 +71,7 @@ def ssl_rsa_get_public_key(private_key, log=LOGGER):
     if proc.returncode != 0:
         raise IOError("OpenSSL Error: {0}".format(err))
 
-    for line in out.split("\n"):
+    for line in tostr(out).split("\n"):
         if line[0:14] == "publicExponent":
             exponent = line.split(')')[0].split('(')[1][2:]
         if line[0:8] == "Modulus=":
@@ -74,7 +105,7 @@ def ssl_read_csr(csr, log=LOGGER):
     domains = set([])
     subject_alt_line = False
 
-    for line in out.split("\n"):
+    for line in tostr(out).split("\n"):
         if line.strip()[0:12] == "Subject: CN=":
             domains.add(line.strip()[12:])
         if subject_alt_line:
@@ -94,17 +125,17 @@ def create_jws(private_key, jwk, nonce, payload = {}):
     header["alg"] = "RS256"
     header["jwk"] = jwk
 
-    payloaddata = tobase64(json.dumps(payload).encode('utf8'))
+    payloaddata = tobase64(tojson(payload))
 
     protected = {}
-    protected["nonce"] = nonce
-    protecteddata = tobase64(json.dumps(protected).encode('utf8'))
+    protected["nonce"] = tostr(nonce)
+    protecteddata = tobase64(tojson(protected))
 
     signdata = "%s.%s" % (protecteddata, payloaddata)
-    signature = ssl_rsa_signsha256(private_key, signdata)
+    signature = ssl_rsa_signsha256(private_key, tobytes(signdata))
     signature = tobase64(signature)
 
-    return json.dumps({"header":header, "payload": payloaddata, "protected": protecteddata, "signature": signature})
+    return tojson({"header":header, "payload": payloaddata, "protected": protecteddata, "signature": signature})
 
 def httpquery(url = "", data = None, headers = {}, timeout = 60, log = LOGGER):
     log.debug("Sending a HTTP request to " + url)
@@ -155,7 +186,7 @@ def get_crt(account_key, csr, email, log=LOGGER):
 
     log.debug("Creating JWK thumbprint")
     jwk_string = '{"e":"%s","kty","RSA","n","%s"}' % (tobase64(e), tobase64(n))
-    thumbprint = tobase64(hashlib.sha256(jwk_string.encode('utf8')).digest())
+    thumbprint = tobase64(hashlib.sha256(tobytes(jwk_string)).digest())
     log.debug("JWK thumbprint created")
     log.info('Parsed!')
 
@@ -166,10 +197,10 @@ def get_crt(account_key, csr, email, log=LOGGER):
         response = httpquery(url = url, data = data, headers = headers, timeout = timeout)
         if response["status"] != -1:
             acmenonce = response["headers"]["replay-nonce"]
-        return response
+        return response, acmenonce
 
     log.debug("Asking server for ACME urls")
-    response = _httpquery(CA_API_URL + "/" + API_DIR_NAME)
+    response, acmenonce = _httpquery(CA_API_URL + "/" + API_DIR_NAME)
     if response["status"] != 200:
         raise Exception("ACME query for directory failed: %s" % response["error"])
     directory = response["jsonbody"]
