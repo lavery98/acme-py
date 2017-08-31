@@ -3,7 +3,9 @@
 import argparse
 import subprocess
 import sys
-import re
+import base64
+import binascii
+import hashlib
 import logging
 
 try:
@@ -20,32 +22,48 @@ LOGGER = logging.getLogger(__name__)
 LOGGER.addHandler(logging.StreamHandler())
 LOGGER.setLevel(logging.INFO)
 
-def get_crt(account_key, csr, log=LOGGER):
-    # parse account key to get public key
-    log.info("Parsing account key...")
+def tobase64(x):
+    return base64.urlsafe_b64encode(x).decode('utf8').replace("=", "")
 
-    proc = subprocess.Popen(["openssl", "rsa", "-in", account_key, "-noout", "-text"],
+def ssl_rsa_get_public_key(private_key, log=LOGGER):
+    log.debug("Calling OpenSSL to get public key from private key")
+    proc = subprocess.Popen(["openssl", "rsa", "-in", private_key, "-noout", "-text", "-modulus"],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = proc.communicate()
     if proc.returncode != 0:
         raise IOError("OpenSSL Error: {0}".format(err))
-    pub_hex, pub_exp = re.search(r"modulus:\n\s+00:([a-f0-9\:\s]+?)\npublicExponent:\s([0-9]+)", out.decode("utf8"), re.MULTILINE|re.DOTALL).groups()
 
-    log.debug("modulus: " + pub_hex)
-    log.debug("public exponent: " + pub_exp)
+    for line in out.split("\n"):
+        if line[0:14] == "publicExponent":
+            exponent = line.split(')')[0].split('(')[1][2:]
+        if line[0:8] == "Modulus=":
+            modulus = line[8:]
 
-    pub_exp = "{0:x}".format(int(pub_exp))
-    pub_exp = "0{0}".format(pub_exp) if len(pub_exp) % 2 else pub_exp
-    header = {
-        "alg": "RS256",
-        "jwk": {
-            "e": "",
-            "kty": "RSA",
-            "n": "",
-        },
+    if (len(exponent) % 2):
+        exponent = "0" + exponent
+
+    exponent = binascii.unhexlify(exponent.encode("utf-8"))
+    modulus = binascii.unhexlify(modulus.encode("utf-8"))
+    return (exponent, modulus)
+
+def get_crt(account_key, csr, log=LOGGER):
+    # parse account key to get public key
+    log.info("Parsing account key...")
+    # TODO: catch thrown errors
+    e, n = ssl_rsa_get_public_key(account_key)
+
+    log.debug("Creating JWK object")
+    jwk = {
+        "e": tobase64(e),
+        "kty": "RSA",
+        "n": tobase64(n)
     }
+    log.debug("JWK object created " + str(jwk))
 
-    log.debug("header: " + str(header))
+    log.debug("Creating JWK thumbprint")
+    jwk_string = '{"e":"%s","kty","RSA","n","%s"}' % (tobase64(e), tobase64(n))
+    thumbprint = tobase64(hashlib.sha256(jwk_string.encode('utf8')).digest())
+    log.debug("JWK thumbprint created")
 
 def main(argv):
     parser = argparse.ArgumentParser()
