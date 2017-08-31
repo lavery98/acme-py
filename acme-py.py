@@ -61,6 +61,32 @@ def ssl_rsa_signsha256(private_key, data, log=LOGGER):
 
     return out
 
+def ssl_read_csr(csr, log=LOGGER):
+    log.debug("Calling OpenSSL to read the provided certificate signing request")
+    proc = subprocess.Popen(["openssl", "req", "-in", csr, "-noout", "-text"],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = proc.communicate()
+    if proc.returncode != 0:
+        raise IOError("OpenSSL Error: {0}".format(err))
+
+    domains = set([])
+    subject_alt_line = False
+
+    for line in out.split("\n"):
+        if line.strip()[0:12] == "Subject: CN=":
+            domains.add(line.strip()[12:])
+        if subject_alt_line:
+            subject_alt_line = False
+
+            for san in line.strip().split(", "):
+                if san.startswith("DNS:"):
+                    domains.add(san[4:])
+        if line.strip() == "X509v3 Subject Alternative Name:":
+            subject_alt_line = True
+
+    log.debug("Domains: " + str(domains))
+    return domains
+
 def create_jws(private_key, jwk, nonce, payload = {}):
     header = {}
     header["alg"] = "RS256"
@@ -145,8 +171,8 @@ def get_crt(account_key, csr, log=LOGGER):
 
     # find domains
     log.info("Parsing CSR...")
-
-    # TODO: parse the CSR
+    domains = ssl_read_csr(csr)
+    log.info('Parsed!')
 
 def main(argv):
     parser = argparse.ArgumentParser()
