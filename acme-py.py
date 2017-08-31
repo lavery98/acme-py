@@ -46,6 +46,34 @@ def ssl_rsa_get_public_key(private_key, log=LOGGER):
     modulus = binascii.unhexlify(modulus.encode("utf-8"))
     return (exponent, modulus)
 
+def ssl_rsa_signsha256(private_key, data, log=LOGGER):
+    log.debug("Calling OpenSSL to sign some data with your private key")
+    proc = subprocess.Popen(["openssl", "dgst", "-sha256", "-sign", private_key],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = proc.communicate(data.encode('utf8'))
+    if proc.returncode != 0:
+        raise IOError("OpenSSL Error: {0}".format(err))
+
+    return out
+
+def create_jws(private_key, jwk, payload = {}):
+    header = {}
+    header["alg"] = "RS256"
+    header["jwk"] = jwk
+
+    payloaddata = tobase64(json.dumps(payload).encode('utf8'))
+
+    protected = {}
+    # TODO: fetch nonce
+    protected["nonce"] = ""
+    protecteddata = tobase64(json.dumps(protected).encode('utf8'))
+
+    signdata = "%s.%s" % (protecteddata, payloaddata)
+    signature = ssl_rsa_signsha256(private_key, signdata)
+    signature = tobase64(signature)
+
+    return json.dumps({"header":header, "payload": payloaddata, "protected": protecteddata, "signature": signature})
+
 def get_crt(account_key, csr, log=LOGGER):
     # parse account key to get public key
     log.info("Parsing account key...")
@@ -64,6 +92,8 @@ def get_crt(account_key, csr, log=LOGGER):
     jwk_string = '{"e":"%s","kty","RSA","n","%s"}' % (tobase64(e), tobase64(n))
     thumbprint = tobase64(hashlib.sha256(jwk_string.encode('utf8')).digest())
     log.debug("JWK thumbprint created")
+
+    log.info('Parsed!')
 
 def main(argv):
     parser = argparse.ArgumentParser()
