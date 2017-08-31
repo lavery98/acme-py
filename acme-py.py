@@ -21,6 +21,8 @@ except ImportError:
 # Default config
 CA_API_URL = "https://acme-staging.api.letsencrypt.org"
 API_DIR_NAME = "directory"
+API_META = "meta"
+API_NEW_REG = "new-reg"
 
 # Logger
 LOGGER = logging.getLogger(__name__)
@@ -137,7 +139,7 @@ def httpquery(url = "", data = None, headers = {}, timeout = 60, log = LOGGER):
 
     return response
 
-def get_crt(account_key, csr, log=LOGGER):
+def get_crt(account_key, csr, email, log=LOGGER):
     # parse account key to get public key
     log.info("Parsing account key...")
     # TODO: catch thrown errors
@@ -168,16 +170,35 @@ def get_crt(account_key, csr, log=LOGGER):
 
     log.debug("Asking server for ACME urls")
     response = _httpquery(CA_API_URL + "/" + API_DIR_NAME)
+    if response["status"] != 200:
+        raise Exception("ACME query for directory failed: %s" % response["error"])
+    directory = response["jsonbody"]
+
+    # TODO: ask if user agrees to given TOS
 
     # find domains
     log.info("Parsing CSR...")
     domains = ssl_read_csr(csr)
     log.info('Parsed!')
 
+    # register an account on the server
+    log.info("Registering account...")
+
+    payload = {
+        "resource": API_NEW_REG,
+        "agreement": directory[API_META]['terms-of-service'],
+    }
+
+    if email is not None:
+        payload["contact"] = ["mailto:%s" % (email)]
+
+    response = _httpquery(directory[API_NEW_REG], create_jws(account_key, jwk, acmenonce, payload), {'content-type': 'application/json'})
+
 def main(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("--account-key", required=True, help="Path to your account private key")
     parser.add_argument("--csr", required=True, help="Path to your certificate signing request")
+    parser.add_argument("--email", default=None, help="Email to which notifications will be sent from the CA")
     parser.add_argument("--acme-dir", default=None, help="Path to the ACME challenge directory")
 
     challenges = parser.add_mutually_exclusive_group(required=True)
@@ -200,7 +221,7 @@ def main(argv):
     if args.quiet:
         LOGGER.setLevel(logging.ERROR)
 
-    get_crt(args.account_key, args.csr)
+    get_crt(args.account_key, args.csr, args.email)
 
 if __name__ == "__main__": # pragma: no cover
     main(sys.argv[1:])
