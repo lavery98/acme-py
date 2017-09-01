@@ -171,7 +171,7 @@ def httpquery(url = "", data = None, headers = {}, timeout = 60, log = LOGGER):
 
     return response
 
-def get_crt(account_key, csr, email, log=LOGGER):
+def get_crt(account_key, csr, email, challenge_type, log=LOGGER):
     # parse account key to get public key
     log.info("Parsing account key...")
     # TODO: catch thrown errors
@@ -235,6 +235,8 @@ def get_crt(account_key, csr, email, log=LOGGER):
     # get challenge for each domain
     challenges = []
     log.info("Getting challenges for each domain")
+    if challenge_type == 2:
+        log.info("Add the following to your DNS zone file")
 
     for domain in domains:
         # get new challenge
@@ -248,6 +250,28 @@ def get_crt(account_key, csr, email, log=LOGGER):
         response, acmenonce = _httpquery(directory[API_NEW_AUTHZ], create_jws(account_key, jwk, acmenonce, payload), {'content-type': 'application/json'})
         if response["status"] != 201:
             raise Exception("Failed to get auth: %s" % response["error"])
+
+        for c in response["jsonbody"]["challenges"]:
+            if c["type"] == "http-01" and challenge_type == 1:
+                challenge = c
+                break
+            if c["type"] == "dns-01" and challenge_type == 2:
+                challenge = c
+                break
+
+        keyauthorization = "%s.%s" % (challenge["token"], thumbprint)
+
+        if challenge_type == 2:
+            dnskey = tobase64(hashlib.sha256(tobytes(keyauthorization)).digest())
+            log.info("_acme-challenge." + domain + ". TXT " + dnskey)
+
+        challenges.append([challenge, keyauthorization])
+
+    if challenge_type == 1:
+        # TODO: complete HTTP prep
+    else:
+        log.info("Press Enter to continue once you have added the DNS records")
+        raw_input()
 
 def main(argv):
     parser = argparse.ArgumentParser()
@@ -270,13 +294,18 @@ def main(argv):
     if args.http and not args.acme_dir:
         parser.error("--acme-dir is required for the HTTP challenge")
 
+    if args.http:
+        challenge_type = 1
+    else:
+        challenge_type = 2
+
     if args.debug:
         LOGGER.setLevel(logging.DEBUG)
 
     if args.quiet:
         LOGGER.setLevel(logging.ERROR)
 
-    get_crt(args.account_key, args.csr, args.email)
+    get_crt(args.account_key, args.csr, args.email, challenge_type)
 
 if __name__ == "__main__": # pragma: no cover
     main(sys.argv[1:])
