@@ -23,6 +23,7 @@ CA_API_URL = "https://acme-staging.api.letsencrypt.org"
 API_DIR_NAME = "directory"
 API_META = "meta"
 API_NEW_REG = "new-reg"
+API_NEW_AUTHZ = "new-authz"
 
 # Logger
 LOGGER = logging.getLogger(__name__)
@@ -223,7 +224,30 @@ def get_crt(account_key, csr, email, log=LOGGER):
     if email is not None:
         payload["contact"] = ["mailto:%s" % (email)]
 
-    response = _httpquery(directory[API_NEW_REG], create_jws(account_key, jwk, acmenonce, payload), {'content-type': 'application/json'})
+    response, acmenonce = _httpquery(directory[API_NEW_REG], create_jws(account_key, jwk, acmenonce, payload), {'content-type': 'application/json'})
+    if response["status"] == 200:
+        log.info("Registered!")
+    elif response["status"] == 409:
+        log.info("Already registered!")
+    else:
+        raise Exception("Failed to register: %s" % response["error"])
+
+    # get challenge for each domain
+    challenges = []
+    log.info("Getting challenges for each domain")
+
+    for domain in domains:
+        # get new challenge
+        log.debug("Getting challenge for " + domain)
+
+        payload = {
+            "resource": API_NEW_AUTHZ,
+            "identifier": {"type": "dns", "value": domain},
+        }
+
+        response, acmenonce = _httpquery(directory[API_NEW_AUTHZ], create_jws(account_key, jwk, acmenonce, payload), {'content-type': 'application/json'})
+        if response["status"] != 200:
+            raise Exception("Failed to get auth: %s" % response["error"])
 
 def main(argv):
     parser = argparse.ArgumentParser()
