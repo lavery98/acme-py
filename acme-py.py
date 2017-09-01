@@ -240,7 +240,7 @@ def get_crt(account_key, csr, email, challenge_type, log=LOGGER):
 
     for domain in domains:
         # get new challenge
-        log.debug("Getting challenge for " + domain)
+        log.debug("Getting challenge for " + domain + "...")
 
         payload = {
             "resource": API_NEW_AUTHZ,
@@ -272,6 +272,20 @@ def get_crt(account_key, csr, email, challenge_type, log=LOGGER):
     else:
         log.info("Press Enter to continue once you have added the DNS records")
         raw_input()
+
+    # verify each domain
+    count = 0
+    for domain in domains:
+        log.info("Verifying " + domain + "...")
+
+        payload = {
+            "resource": "challenge",
+            "keyAuthorization": challenges[count][1],
+        }
+
+        response, acmenonce = _httpquery(challenges[count][0]["uri"], create_jws(account_key, jwk, acmenonce, payload), {'content-type': 'application/json'})
+
+        count = count + 1
 
 def main(argv):
     parser = argparse.ArgumentParser()
