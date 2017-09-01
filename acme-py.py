@@ -246,7 +246,7 @@ def get_crt(account_key, csr, email, log=LOGGER):
         }
 
         response, acmenonce = _httpquery(directory[API_NEW_AUTHZ], create_jws(account_key, jwk, acmenonce, payload), {'content-type': 'application/json'})
-        if response["status"] != 200:
+        if response["status"] != 201:
             raise Exception("Failed to get auth: %s" % response["error"])
 
 def main(argv):
