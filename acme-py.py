@@ -30,6 +30,9 @@ LOGGER = logging.getLogger(__name__)
 LOGGER.addHandler(logging.StreamHandler())
 LOGGER.setLevel(logging.INFO)
 
+# Store ACME nonce value
+ACME_NONCE = None
+
 def tobase64(x):
     return tostr(base64.urlsafe_b64encode(tobytes(x))).replace("=", "")
 
@@ -64,8 +67,8 @@ def tobytes(x):
 def tojson(x):
     return tobytes(json.dumps(x))
 
-def ssl_rsa_get_public_key(private_key, log=LOGGER):
-    log.debug("Calling OpenSSL to get public key from private key")
+def ssl_rsa_get_public_key(private_key):
+    LOGGER.debug("Calling OpenSSL to get public key from private key")
     proc = subprocess.Popen(["openssl", "rsa", "-in", private_key, "-noout", "-text", "-modulus"],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = proc.communicate()
@@ -85,8 +88,8 @@ def ssl_rsa_get_public_key(private_key, log=LOGGER):
     modulus = binascii.unhexlify(modulus.encode("utf-8"))
     return (exponent, modulus)
 
-def ssl_rsa_signsha256(private_key, data, log=LOGGER):
-    log.debug("Calling OpenSSL to sign some data with your private key")
+def ssl_rsa_signsha256(private_key, data):
+    LOGGER.debug("Calling OpenSSL to sign some data with your private key")
     proc = subprocess.Popen(["openssl", "dgst", "-sha256", "-sign", private_key],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = proc.communicate(data.encode('utf8'))
@@ -95,8 +98,8 @@ def ssl_rsa_signsha256(private_key, data, log=LOGGER):
 
     return out
 
-def ssl_read_csr(csr, log=LOGGER):
-    log.debug("Calling OpenSSL to read the provided certificate signing request")
+def ssl_read_csr(csr):
+    LOGGER.debug("Calling OpenSSL to read the provided certificate signing request")
     proc = subprocess.Popen(["openssl", "req", "-in", csr, "-noout", "-text"],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = proc.communicate()
@@ -118,7 +121,7 @@ def ssl_read_csr(csr, log=LOGGER):
         if line.strip() == "X509v3 Subject Alternative Name:":
             subject_alt_line = True
 
-    log.debug("Domains: " + str(domains))
+    LOGGER.debug("Domains: " + str(domains))
     return domains
 
 def get_jwk(account_key):
@@ -143,7 +146,7 @@ def get_jwk(account_key):
 
     return jwk, thumbprint
 
-def create_jws(private_key, jwk, nonce, payload = {}):
+def create_jws(private_key, jwk, payload = {}):
     header = {}
     header["alg"] = "RS256"
     header["jwk"] = jwk
@@ -151,7 +154,7 @@ def create_jws(private_key, jwk, nonce, payload = {}):
     payloaddata = tobase64(tojson(payload))
 
     protected = {}
-    protected["nonce"] = tostr(nonce)
+    protected["nonce"] = tostr(ACME_NONCE)
     protecteddata = tobase64(tojson(protected))
 
     signdata = "%s.%s" % (protecteddata, payloaddata)
@@ -160,8 +163,8 @@ def create_jws(private_key, jwk, nonce, payload = {}):
 
     return tojson({"header":header, "payload": payloaddata, "protected": protecteddata, "signature": signature})
 
-def httpquery(url = "", data = None, headers = {}, timeout = 60, log = LOGGER):
-    log.debug("Sending a HTTP request to " + url)
+def httpquery(url = "", data = None, headers = {}, timeout = 60):
+    LOGGER.debug("Sending a HTTP request to " + url)
 
     try:
         req = Request(url, data = data, headers = headers)
@@ -189,63 +192,29 @@ def httpquery(url = "", data = None, headers = {}, timeout = 60, log = LOGGER):
         if response["headers"]["content-type"].lower() == "application/problem+json":
             response["jsonbody"] = json.loads(response["body"])
 
-    log.debug("Response: " + str(response))
+    LOGGER.debug("Response: " + str(response))
 
+    global ACME_NONCE
+    ACME_NONCE = response["headers"]["replay-nonce"]
     return response
 
-def get_cert_http(account_key, csr, email, acme_dir):
-    # get the jwk for this account key
-    jwk, thumbprint = get_jwk(account_key)
-
-def get_cert_dns(account_key, csr, email):
-    # get the jwk for this account key
-    jwk, thumbprint = get_jwk(account_key)
-
-# TODO: remove this function
-def get_crt(account_key, csr, email, challenge_type, log=LOGGER):
-    # parse account key to get public key
-    log.info("Parsing account key...")
-    # TODO: catch thrown errors
-    e, n = ssl_rsa_get_public_key(account_key)
-
-    log.debug("Creating JWK object")
-    jwk = {
-        "e": tobase64(e),
-        "kty": "RSA",
-        "n": tobase64(n)
-    }
-    log.debug("JWK object created " + str(jwk))
-
-    log.debug("Creating JWK thumbprint")
-    jwk_string = json.dumps(jwk, sort_keys=True, separators=(',', ':'))
-    thumbprint = tobase64(hashlib.sha256(tobytes(jwk_string)).digest())
-    log.debug("JWK thumbprint created")
-    log.info('Parsed!')
-
-    # get the ACME urls from the server
-    acmenonce = None
-
-    def _httpquery(url = "", data = None, headers = {}, timeout = 60):
-        response = httpquery(url = url, data = data, headers = headers, timeout = timeout)
-        if response["status"] != -1:
-            acmenonce = response["headers"]["replay-nonce"]
-        return response, acmenonce
-
-    log.debug("Asking server for ACME urls")
-    response, acmenonce = _httpquery(CA_API_URL + "/" + API_DIR_NAME)
+def get_directory():
+    LOGGER.debug("Asking server for ACME directory")
+    response = httpquery(CA_API_URL + "/" + API_DIR_NAME)
     if response["status"] != 200:
         raise Exception("ACME query for directory failed: %s" % response["error"])
-    directory = response["jsonbody"]
+    return response["jsonbody"]
 
-    # TODO: ask if user agrees to given TOS
-
-    # find domains
-    log.info("Parsing CSR...")
+def parse_csr(csr):
+    LOGGER.info("Parsing CSR...")
     domains = ssl_read_csr(csr)
-    log.info('Parsed!')
+    LOGGER.info('Parsed!')
+    return domains
 
-    # register an account on the server
-    log.info("Registering account...")
+def register_account(account_key, email, jwk, directory):
+    LOGGER.info("Registering account...")
+
+    # TODO: ask if user agrees to TOS
 
     payload = {
         "resource": API_NEW_REG,
@@ -255,70 +224,111 @@ def get_crt(account_key, csr, email, challenge_type, log=LOGGER):
     if email is not None:
         payload["contact"] = ["mailto:%s" % (email)]
 
-    response, acmenonce = _httpquery(directory[API_NEW_REG], create_jws(account_key, jwk, acmenonce, payload), {'content-type': 'application/json'})
+    jws = create_jws(account_key, jwk, payload)
+    response = httpquery(directory[API_NEW_REG], jws, {'content-type': 'application/json'})
+
     if response["status"] == 200:
-        log.info("Registered!")
+        LOGGER.info("Registered!")
     elif response["status"] == 409:
-        log.info("Already registered!")
+        LOGGER.info("Already registered!")
     else:
         raise Exception("Failed to register: %s" % response["error"])
 
-    # get challenge for each domain
+    return response
+
+def get_challenges(account_key, jwk, thumbprint, directory, domains, challenge_type):
+    LOGGER.info("Getting challenges for each domain")
     challenges = []
-    log.info("Getting challenges for each domain")
-    if challenge_type == 2:
-        log.info("Add the following to your DNS zone file")
 
     for domain in domains:
         # get new challenge
-        log.debug("Getting challenge for " + domain + "...")
+        LOGGER.debug("Getting challenge for " + domain + "...")
 
         payload = {
             "resource": API_NEW_AUTHZ,
             "identifier": {"type": "dns", "value": domain},
         }
 
-        response, acmenonce = _httpquery(directory[API_NEW_AUTHZ], create_jws(account_key, jwk, acmenonce, payload), {'content-type': 'application/json'})
+        jws = create_jws(account_key, jwk, payload)
+        response = httpquery(directory[API_NEW_AUTHZ], jws, {'content-type': 'application/json'})
         if response["status"] != 201:
             raise Exception("Failed to get auth: %s" % response["error"])
 
         for c in response["jsonbody"]["challenges"]:
-            if c["type"] == "http-01" and challenge_type == 1:
-                challenge = c
-                break
-            if c["type"] == "dns-01" and challenge_type == 2:
+            if c["type"] == challenge_type:
                 challenge = c
                 break
 
         keyauthorization = "%s.%s" % (challenge["token"], thumbprint)
+        challenges.append([domain, challenge, keyauthorization])
 
-        if challenge_type == 2:
-            dnskey = tobase64(hashlib.sha256(tobytes(keyauthorization)).digest())
-            log.info("_acme-challenge." + domain + ". TXT " + dnskey)
+    return challenges
 
-        challenges.append([challenge, keyauthorization])
+def verify_challenges(account_key, jwk, challenges):
+    LOGGER.info("Verifying challenges...")
 
-    if challenge_type == 2:
-        log.info("Press Enter to continue once you have added the DNS records")
-        raw_input()
-
-    # verify each domain
-    count = 0
-    for domain in domains:
-        log.info("Verifying " + domain + "...")
+    for challenge in challenges:
+        LOGGER.info("Verifying " + challenge[0] + "...")
 
         payload = {
             "resource": "challenge",
-            "keyAuthorization": challenges[count][1],
+            "keyAuthorization": challenge[2],
         }
 
-        response, acmenonce = _httpquery(challenges[count][0]["uri"], create_jws(account_key, jwk, acmenonce, payload), {'content-type': 'application/json'})
+        jws = create_jws(account_key, jwk, payload)
+        response = httpquery(challenge[1]["uri"], jws, {'content-type': 'application/json'})
         if response["status"] != 202:
-            raise Exception("Failed to trigger challenge: %s" % response["error"])
+            raise Exception("Failed to verify challenge: %s" % response["error"])
 
-        # TODO: wait for challenge to complete
+def get_cert_http(account_key, csr, email, acme_dir):
+    # get the jwk for this account key
+    jwk, thumbprint = get_jwk(account_key)
 
-        count = count + 1
+    # get the directory
+    directory = get_directory()
+
+    # get domains
+    domains = parse_csr(csr)
+
+    # register an account on the server
+    register_account(account_key, email, jwk, directory)
+
+    # get the challenges for each domain
+    challenges = get_challenges(account_key, jwk, thumbprint, directory, domains, "http-01")
+
+    # TODO: create token file
+
+    # verify the challenges
+    verify_challenges(account_key, jwk, challenges)
+
+def get_cert_dns(account_key, csr, email):
+    # get the jwk for this account key
+    jwk, thumbprint = get_jwk(account_key)
+
+    # get the directory
+    directory = get_directory()
+
+    # get domains
+    domains = parse_csr(csr)
+
+    # register an account on the server
+    register_account(account_key, email, jwk, directory)
+
+    # get the challenges for each domain
+    challenges = get_challenges(account_key, jwk, thumbprint, directory, domains, "dns-01")
+
+    # print out the DNS entries to be created
+    LOGGER.info("Add the following to your DNS zone file")
+
+    for challenge in challenges:
+        dnskey = tobase64(hashlib.sha256(tobytes(challenge[2])).digest())
+        LOGGER.info("_acme-challenge." + challenge[0] + ". TXT " + dnskey)
+
+    LOGGER.info("Press Enter to continue once you have added the DNS records")
+    raw_input()
+
+    # verify the challenges
+    verify_challenges(account_key, jwk, challenges)
 
 def main(argv):
     parser = argparse.ArgumentParser()
@@ -346,8 +356,6 @@ def main(argv):
 
     if args.quiet:
         LOGGER.setLevel(logging.ERROR)
-
-    #get_crt(args.account_key, args.csr, args.email, challenge_type)
 
     if args.http:
         get_cert_http(args.account_key, args.csr, args.email, args.acme_dir)
