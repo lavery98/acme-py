@@ -186,7 +186,7 @@ def get_crt(account_key, csr, email, challenge_type, log=LOGGER):
     log.debug("JWK object created " + str(jwk))
 
     log.debug("Creating JWK thumbprint")
-    jwk_string = '{"e":"%s","kty","RSA","n","%s"}' % (tobase64(e), tobase64(n))
+    jwk_string = json.dumps(jwk, sort_keys=True, separators=(',', ':'))
     thumbprint = tobase64(hashlib.sha256(tobytes(jwk_string)).digest())
     log.debug("JWK thumbprint created")
     log.info('Parsed!')
