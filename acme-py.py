@@ -6,6 +6,7 @@ import json
 import sys
 import base64
 import binascii
+import time
 import hashlib
 import logging
 
@@ -279,6 +280,25 @@ def verify_challenges(account_key, jwk, challenges):
         response = httpquery(challenge[1]["uri"], jws, {'content-type': 'application/json'})
         if response["status"] != 202:
             raise Exception("Failed to verify challenge: %s" % response["error"])
+
+        timeouts = [10, 100, 1000]
+        success = False
+        for timeout in timeouts:
+            response = httpquery(challenge[1]["uri"])
+            if response["status"] != 202:
+                raise Exception("Failed to verify challenge: %s" % response["error"])
+
+            if response["jsonbody"]["status"] == "pending":
+                time.sleep(timeout)
+            elif response["jsonbody"]["status"] == "valid":
+                LOGGER.info("%s verified!" % (challenge[0]))
+                success = True
+                break
+            else:
+                raise Exception("Failed to pass challenge for domain %s: %s" % (challenge[0], response["jsonbody"]))
+
+        if not success:
+            raise Exception("Failed to pass challenge for domain %s: Request still pending" % (challenge[0]))
 
 def get_cert_http(account_key, csr, email, acme_dir):
     # get the jwk for this account key
