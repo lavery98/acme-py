@@ -353,14 +353,14 @@ def get_cert_dns(account_key, csr, email):
 def main(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("--account-key", required=True, help="Path to your account private key")
-    parser.add_argument("--csr", required=True, help="Path to your certificate signing request")
+    parser.add_argument("--csr", default=None, help="Path to your certificate signing request")
     parser.add_argument("--email", default=None, help="Email to which notifications will be sent from the CA")
     parser.add_argument("--acme-dir", default=None, help="Path to the ACME challenge directory")
 
-    challenges = parser.add_mutually_exclusive_group(required=True)
-    challenges.add_argument("--http", action="store_true", help="Use HTTP challenge")
-    #challenges.add_argument("--tls", action="store_true", help="Use TLS challenge")
-    challenges.add_argument("--dns", action="store_true", help="Use DNS challenge")
+    modes = parser.add_mutually_exclusive_group(required=True)
+    modes.add_argument("--http", action="store_true", help="Use HTTP challenge")
+    #modes.add_argument("--tls", action="store_true", help="Use TLS challenge")
+    modes.add_argument("--dns", action="store_true", help="Use DNS challenge")
 
     logging_amount = parser.add_mutually_exclusive_group()
     logging_amount.add_argument("--debug", action="store_true", help="Enable debug log messages")
@@ -370,6 +370,9 @@ def main(argv):
 
     if args.http and not args.acme_dir:
         parser.error("--acme-dir is required for the HTTP challenge")
+
+    if (args.http or args.dns) and not args.csr:
+        parser.error("--csr is required for the HTTP and DNS challenges")
 
     if args.debug:
         LOGGER.setLevel(logging.DEBUG)
