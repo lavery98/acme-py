@@ -121,6 +121,28 @@ def ssl_read_csr(csr, log=LOGGER):
     log.debug("Domains: " + str(domains))
     return domains
 
+def get_jwk(account_key):
+    # parse account key to get public key
+    LOGGER.info("Parsing account key...")
+    # TODO: catch thrown errors
+    e, n = ssl_rsa_get_public_key(account_key)
+
+    LOGGER.debug("Creating JWK object")
+    jwk = {
+        "e": tobase64(e),
+        "kty": "RSA",
+        "n": tobase64(n)
+    }
+    LOGGER.debug("JWK object created " + str(jwk))
+
+    LOGGER.debug("Creating JWK thumbprint")
+    jwk_string = json.dumps(jwk, sort_keys=True, separators=(',', ':'))
+    thumbprint = tobase64(hashlib.sha256(tobytes(jwk_string)).digest())
+    LOGGER.debug("JWK thumbprint created")
+    LOGGER.info('Parsed!')
+
+    return jwk, thumbprint
+
 def create_jws(private_key, jwk, nonce, payload = {}):
     header = {}
     header["alg"] = "RS256"
@@ -171,6 +193,15 @@ def httpquery(url = "", data = None, headers = {}, timeout = 60, log = LOGGER):
 
     return response
 
+def get_cert_http(account_key, csr, email, acme_dir):
+    # get the jwk for this account key
+    jwk, thumbprint = get_jwk(account_key)
+
+def get_cert_dns(account_key, csr, email):
+    # get the jwk for this account key
+    jwk, thumbprint = get_jwk(account_key)
+
+# TODO: remove this function
 def get_crt(account_key, csr, email, challenge_type, log=LOGGER):
     # parse account key to get public key
     log.info("Parsing account key...")
@@ -267,9 +298,7 @@ def get_crt(account_key, csr, email, challenge_type, log=LOGGER):
 
         challenges.append([challenge, keyauthorization])
 
-    if challenge_type == 1:
-        # TODO: complete HTTP prep
-    else:
+    if challenge_type == 2:
         log.info("Press Enter to continue once you have added the DNS records")
         raw_input()
 
@@ -284,6 +313,10 @@ def get_crt(account_key, csr, email, challenge_type, log=LOGGER):
         }
 
         response, acmenonce = _httpquery(challenges[count][0]["uri"], create_jws(account_key, jwk, acmenonce, payload), {'content-type': 'application/json'})
+        if response["status"] != 202:
+            raise Exception("Failed to trigger challenge: %s" % response["error"])
+
+        # TODO: wait for challenge to complete
 
         count = count + 1
 
@@ -308,18 +341,18 @@ def main(argv):
     if args.http and not args.acme_dir:
         parser.error("--acme-dir is required for the HTTP challenge")
 
-    if args.http:
-        challenge_type = 1
-    else:
-        challenge_type = 2
-
     if args.debug:
         LOGGER.setLevel(logging.DEBUG)
 
     if args.quiet:
         LOGGER.setLevel(logging.ERROR)
 
-    get_crt(args.account_key, args.csr, args.email, challenge_type)
+    #get_crt(args.account_key, args.csr, args.email, challenge_type)
+
+    if args.http:
+        get_cert_http(args.account_key, args.csr, args.email, args.acme_dir)
+    else:
+        get_cert_dns(args.account_key, args.csr, args.email)
 
 if __name__ == "__main__": # pragma: no cover
     main(sys.argv[1:])
