@@ -237,7 +237,7 @@ def register_account(account_key, email, jwk, directory):
     jws = create_jws(account_key, jwk, payload)
     response = httpquery(directory[API_NEW_REG], jws, {'content-type': 'application/json'})
 
-    if response["status"] == 200:
+    if response["status"] == 201:
         LOGGER.info("Registered!")
     elif response["status"] == 409:
         LOGGER.info("Already registered!")
