@@ -8,6 +8,7 @@ import base64
 import binascii
 import time
 import hashlib
+import textwrap
 import logging
 
 try:
@@ -328,7 +329,7 @@ def get_crt(account_key, jwk, directory, csr):
     # TODO: get intermediate cert
     LOGGER.info("Signed!")
 
-    return """-----BEGIN CERTIFICATE-----\n{0}\n-----END CERTIFICATE-----\n""".format("\n".join(textwrap.wrap(tobase64(tobytes(response['body'])), 64)))
+    return """-----BEGIN CERTIFICATE-----\n{0}\n-----END CERTIFICATE-----\n""".format("\n".join(textwrap.wrap(base64.b64encode(tobytes(response["body"])), 64)))
 
 def get_cert_http(account_key, csr, email, acme_dir):
     # get the jwk for this account key
