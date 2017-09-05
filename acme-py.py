@@ -325,6 +325,11 @@ def get_crt(account_key, jwk, directory, csr):
     if response["status"] != 201:
         raise Exception("Failed to sign certificate: %s" %s (response["error"]))
 
+    # TODO: get intermediate cert
+    LOGGER.info("Signed!")
+
+    return """-----BEGIN CERTIFICATE-----\n{0}\n-----END CERTIFICATE-----\n""".format("\n".join(textwrap.wrap(tobase64(tobytes(response['body'])), 64)))
+
 def get_cert_http(account_key, csr, email, acme_dir):
     # get the jwk for this account key
     jwk, thumbprint = get_jwk(account_key)
@@ -347,7 +352,7 @@ def get_cert_http(account_key, csr, email, acme_dir):
     verify_challenges(account_key, jwk, challenges)
 
     # get the certificate
-    get_crt(account_key, jwk, directory, csr)
+    crt = get_crt(account_key, jwk, directory, csr)
 
 def get_cert_dns(account_key, csr, email):
     # get the jwk for this account key
@@ -381,7 +386,7 @@ def get_cert_dns(account_key, csr, email):
     LOGGER.info("All the DNS records can now be removed")
 
     # get the certificate
-    get_crt(account_key, jwk, directory, csr)
+    crt = get_crt(account_key, jwk, directory, csr)
 
 def main(argv):
     parser = argparse.ArgumentParser()
