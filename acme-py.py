@@ -346,7 +346,7 @@ def get_cert_http(account_key, csr, email, acme_dir):
     verify_challenges(account_key, jwk, challenges)
 
     # get the certificate
-    get_crt(account_key, jwk, csr)
+    get_crt(account_key, jwk, directory, csr)
 
 def get_cert_dns(account_key, csr, email):
     # get the jwk for this account key
@@ -380,7 +380,7 @@ def get_cert_dns(account_key, csr, email):
     LOGGER.info("All the DNS records can now be removed")
 
     # get the certificate
-    get_crt(account_key, jwk, csr)
+    get_crt(account_key, jwk, directory, csr)
 
 def main(argv):
     parser = argparse.ArgumentParser()
