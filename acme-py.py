@@ -368,7 +368,10 @@ def get_cert_http(account_key, csr, email, acme_dir):
     # verify the challenges
     verify_challenges(account_key, jwk, challenges)
 
-    # TODO: remove token file
+    # TODO: clean up if verify fails
+    for challenge in challenges:
+        wellknown_path = os.path.join(acme_dir, challenge[1]["token"])
+        os.remove(wellknown_path)
 
     # get the certificate
     crt = get_crt(account_key, jwk, directory, csr)
