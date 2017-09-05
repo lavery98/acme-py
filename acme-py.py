@@ -125,6 +125,15 @@ def ssl_read_csr(csr):
     LOGGER.debug("Domains: " + str(domains))
     return domains
 
+def ssl_get_csr(csr):
+    LOGGER.debug("Calling OpenSSL to get the provided certificate signing request")
+    proc = subprocess.Popen(["openssl", "req", "-in", csr, "-outform", "DER"],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = proc.communicate()
+    if proc.returncode != 0:
+        raise IOError("OpenSSL Error: {0}".format(err))
+    return out
+
 def get_jwk(account_key):
     # parse account key to get public key
     LOGGER.info("Parsing account key...")
@@ -203,7 +212,7 @@ def get_directory():
     LOGGER.debug("Asking server for ACME directory")
     response = httpquery(CA_API_URL + "/" + API_DIR_NAME)
     if response["status"] != 200:
-        raise Exception("ACME query for directory failed: %s" % response["error"])
+        raise Exception("ACME query for directory failed: %s" % (response["error"]))
     return response["jsonbody"]
 
 def parse_csr(csr):
@@ -233,7 +242,7 @@ def register_account(account_key, email, jwk, directory):
     elif response["status"] == 409:
         LOGGER.info("Already registered!")
     else:
-        raise Exception("Failed to register: %s" % response["error"])
+        raise Exception("Failed to register: %s" % (response["error"]))
 
     return response
 
@@ -253,7 +262,7 @@ def get_challenges(account_key, jwk, thumbprint, directory, domains, challenge_t
         jws = create_jws(account_key, jwk, payload)
         response = httpquery(directory[API_NEW_AUTHZ], jws, {'content-type': 'application/json'})
         if response["status"] != 201:
-            raise Exception("Failed to get auth: %s" % response["error"])
+            raise Exception("Failed to get auth: %s" % (response["error"]))
 
         for c in response["jsonbody"]["challenges"]:
             if c["type"] == challenge_type:
@@ -279,14 +288,14 @@ def verify_challenges(account_key, jwk, challenges):
         jws = create_jws(account_key, jwk, payload)
         response = httpquery(challenge[1]["uri"], jws, {'content-type': 'application/json'})
         if response["status"] != 202:
-            raise Exception("Failed to verify challenge: %s" % response["error"])
+            raise Exception("Failed to verify challenge: %s" % (response["error"]))
 
         timeouts = [10, 100, 1000]
         success = False
         for timeout in timeouts:
             response = httpquery(challenge[1]["uri"])
             if response["status"] != 202:
-                raise Exception("Failed to verify challenge: %s" % response["error"])
+                raise Exception("Failed to verify challenge: %s" % (response["error"]))
 
             if response["jsonbody"]["status"] == "pending":
                 time.sleep(timeout)
@@ -299,6 +308,21 @@ def verify_challenges(account_key, jwk, challenges):
 
         if not success:
             raise Exception("Failed to pass challenge for domain %s: Request still pending" % (challenge[0]))
+
+def get_crt(account_key, jwk, directory, csr):
+    LOGGER.info("Signing certificate...")
+
+    csr_data = ssl_get_csr(csr)
+
+    payload = {
+        "resource": API_NEW_CERT,
+        "csr": tobase64(csr_data),
+    }
+
+    jws = create_jws(account_key, jwk, payload)
+    response = httpquery(directory[API_NEW_CERT], jws, {"Accept": "application/pkix-cert", 'content-type': 'application/json'})
+    if response["status"] != 201:
+        raise Exception("Failed to sign certificate: %s" %s (response["error"]))
 
 def get_cert_http(account_key, csr, email, acme_dir):
     # get the jwk for this account key
@@ -320,6 +344,9 @@ def get_cert_http(account_key, csr, email, acme_dir):
 
     # verify the challenges
     verify_challenges(account_key, jwk, challenges)
+
+    # get the certificate
+    get_crt(account_key, jwk, csr)
 
 def get_cert_dns(account_key, csr, email):
     # get the jwk for this account key
@@ -349,6 +376,11 @@ def get_cert_dns(account_key, csr, email):
 
     # verify the challenges
     verify_challenges(account_key, jwk, challenges)
+
+    LOGGER.info("All the DNS records can now be removed")
+
+    # get the certificate
+    get_crt(account_key, jwk, csr)
 
 def main(argv):
     parser = argparse.ArgumentParser()
