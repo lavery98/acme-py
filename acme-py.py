@@ -347,10 +347,28 @@ def get_cert_http(account_key, csr, email, acme_dir):
     # get the challenges for each domain
     challenges = get_challenges(account_key, jwk, thumbprint, directory, domains, "http-01")
 
-    # TODO: create token file
+    for challenge in challenges:
+        if os.path.sep in challenge[1]["token"] or (os.path.altsep or '\\') in challenge[1]["token"] or not challenge[1]["token"]:
+            raise Exception("Got an invalid and possibly dangerous token.")
+        wellknown_path = os.path.join(acme_dir, challenge[1]["token"])
+
+        with open(wellknown_path, "w") as wellknown_file:
+            wellknown_file.write(challenge[2])
+
+        # check file is in place
+        wellknown_url = "http://%s/.well-known/acme-challenge/%s" % (challenge[0], challenge[1]["token"])
+        try:
+            response = urlopen(wellknown_url)
+            response_data = tostr(response.read()).strip()
+            assert response_data == challenge[2]
+        except (IOError, AssertionError):
+            os.remove(wellknown_path)
+            raise ValueError("Wrote to file %s, but couldn't download %s" % (wellknown_path, wellknown_url))
 
     # verify the challenges
     verify_challenges(account_key, jwk, challenges)
+
+    # TODO: remove token file
 
     # get the certificate
     crt = get_crt(account_key, jwk, directory, csr)
