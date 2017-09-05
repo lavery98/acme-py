@@ -25,6 +25,7 @@ API_DIR_NAME = "directory"
 API_META = "meta"
 API_NEW_REG = "new-reg"
 API_NEW_AUTHZ = "new-authz"
+API_NEW_CERT = "new-cert"
 
 # Logger
 LOGGER = logging.getLogger(__name__)
