@@ -9,6 +9,7 @@ import base64
 import binascii
 import time
 import hashlib
+import re
 import textwrap
 import logging
 
