@@ -368,8 +368,7 @@ def get_cert_http(account_key, csr, email, acme_dir):
             raise Exception("Got an invalid and possibly dangerous token.")
         wellknown_path = os.path.join(acme_dir, challenge[1]["token"])
 
-        with open(wellknown_path, "w") as wellknown_file:
-            wellknown_file.write(challenge[2])
+        write_file(wellknown_path, challenge[2])
 
         # check file is in place
         wellknown_url = "http://%s/.well-known/acme-challenge/%s" % (challenge[0], challenge[1]["token"])
@@ -382,9 +381,14 @@ def get_cert_http(account_key, csr, email, acme_dir):
             raise ValueError("Wrote to file %s, but couldn't download %s" % (wellknown_path, wellknown_url))
 
     # verify the challenges
-    verify_challenges(account_key, jwk, challenges)
+    try:
+        verify_challenges(account_key, jwk, challenges)
+    except:
+        for challenge in challenges:
+            wellknown_path = os.path.join(acme_dir, challenge[1]["token"])
+            os.remove(wellknown_path)
+        raise
 
-    # TODO: clean up if verify fails
     for challenge in challenges:
         wellknown_path = os.path.join(acme_dir, challenge[1]["token"])
         os.remove(wellknown_path)
