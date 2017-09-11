@@ -4,6 +4,7 @@ import argparse
 import subprocess
 import json
 import sys
+import os
 import base64
 import binascii
 import time
@@ -69,6 +70,10 @@ def tobytes(x):
 
 def tojson(x):
     return tobytes(json.dumps(x))
+
+def write_file(path, data):
+    with open(path, "w") as fileh:
+        fileh.write(data)
 
 def ssl_rsa_get_public_key(private_key):
     LOGGER.debug("Calling OpenSSL to get public key from private key")
@@ -326,10 +331,20 @@ def get_crt(account_key, jwk, directory, csr):
     if response["status"] != 201:
         raise Exception("Failed to sign certificate: %s" %s (response["error"]))
 
-    # TODO: get intermediate cert
+    res_m = re.match("\\s*<([^>]+)>;rel=\"up\"" , response['headers']['link'])
+    chain_url = res_m.group(1) if res_m else None
+    if not chain_url:
+        LOGGER.error("Could not get intermediate certificate url")
+
     LOGGER.info("Signed!")
 
-    return """-----BEGIN CERTIFICATE-----\n{0}\n-----END CERTIFICATE-----\n""".format("\n".join(textwrap.wrap(base64.b64encode(tobytes(response["body"])), 64)))
+    return """-----BEGIN CERTIFICATE-----\n{0}\n-----END CERTIFICATE-----\n""".format("\n".join(textwrap.wrap(base64.b64encode(tobytes(response["body"])), 64))), chain_url
+
+def get_intermediate(chain_url):
+    response = urlopen(chain_url)
+    if response.getcode() != 200:
+        raise Exception("Could not fetch the intermediate certificate")
+    return """-----BEGIN CERTIFICATE-----\n{0}\n-----END CERTIFICATE-----\n""".format("\n".join(textwrap.wrap(base64.b64encode(tobytes(response.read())), 64)))
 
 def get_cert_http(account_key, csr, email, acme_dir):
     # get the jwk for this account key
@@ -374,7 +389,9 @@ def get_cert_http(account_key, csr, email, acme_dir):
         os.remove(wellknown_path)
 
     # get the certificate
-    crt = get_crt(account_key, jwk, directory, csr)
+    crt, chain_url = get_crt(account_key, jwk, directory, csr)
+
+    return crt, chain_url
 
 def get_cert_dns(account_key, csr, email):
     # get the jwk for this account key
@@ -408,7 +425,9 @@ def get_cert_dns(account_key, csr, email):
     LOGGER.info("All the DNS records can now be removed")
 
     # get the certificate
-    crt = get_crt(account_key, jwk, directory, csr)
+    crt, chain_url = get_crt(account_key, jwk, directory, csr)
+
+    return crt, chain_url
 
 def main(argv):
     parser = argparse.ArgumentParser()
@@ -416,6 +435,9 @@ def main(argv):
     parser.add_argument("--csr", default=None, help="Path to your certificate signing request")
     parser.add_argument("--email", default=None, help="Email to which notifications will be sent from the CA")
     parser.add_argument("--acme-dir", default=None, help="Path to the ACME challenge directory")
+    parser.add_argument("--cert", default=None, help="Path to store the signed certificate")
+    parser.add_argument("--chain", default=None, help="Path to store the intermediate certificate")
+    parser.add_argument("--chained", default=None, help="Path to store the chained certificate")
 
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--http", action="store_true", help="Use HTTP challenge")
@@ -434,6 +456,9 @@ def main(argv):
     if (args.http or args.dns) and not args.csr:
         parser.error("--csr is required for the HTTP and DNS challenges")
 
+    if (args.http or args.dns) and not (args.cert or args.chained):
+        parser.error("--cert or --chained is required for the HTTP and DNS challenges")
+
     if args.debug:
         LOGGER.setLevel(logging.DEBUG)
 
@@ -441,9 +466,24 @@ def main(argv):
         LOGGER.setLevel(logging.ERROR)
 
     if args.http:
-        get_cert_http(args.account_key, args.csr, args.email, args.acme_dir)
+        crt, chain_url = get_cert_http(args.account_key, args.csr, args.email, args.acme_dir)
     else:
-        get_cert_dns(args.account_key, args.csr, args.email)
+        crt, chain_url = get_cert_dns(args.account_key, args.csr, args.email)
+
+    if args.http or args.dns:
+        if args.chain or args.chained:
+            # get the intermediate certificate
+            intermediate = get_intermediate(chain_url)
+
+            if args.chain:
+                write_file(args.chain, intermediate)
+
+            if args.chained:
+                write_file(args.chained, crt)
+                write_file(args.chained, intermediate)
+
+        if args.cert:
+            write_file(args.cert, crt)
 
 if __name__ == "__main__": # pragma: no cover
     main(sys.argv[1:])
