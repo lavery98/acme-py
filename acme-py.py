@@ -272,13 +272,14 @@ def get_challenges(account_key, jwk, thumbprint, directory, domains, challenge_t
         if response["status"] != 201:
             raise Exception("Failed to get auth: %s" % (response["error"]))
 
-        for c in response["jsonbody"]["challenges"]:
-            if c["type"] == challenge_type:
-                challenge = c
-                break
+        if response["jsonbody"]["status"] == "pending":
+            for c in response["jsonbody"]["challenges"]:
+                if c["type"] == challenge_type:
+                    challenge = c
+                    break
 
-        keyauthorization = "%s.%s" % (challenge["token"], thumbprint)
-        challenges.append([domain, challenge, keyauthorization])
+            keyauthorization = "%s.%s" % (challenge["token"], thumbprint)
+            challenges.append([domain, challenge, keyauthorization])
 
     return challenges
 
