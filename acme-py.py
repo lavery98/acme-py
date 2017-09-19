@@ -23,10 +23,10 @@ except ImportError:
     from urllib2 import HTTPError
 
 # Default config
-CA_API_URL = "https://acme-staging.api.letsencrypt.org"
-API_DIR_NAME = "directory"
+CA_API_URL = "http://127.0.0.1:14000"
+API_DIR_NAME = "dir"
 API_META = "meta"
-API_NEW_REG = "new-reg"
+API_NEW_REG = "new-account"
 API_NEW_AUTHZ = "new-authz"
 API_NEW_CERT = "new-cert"
 
