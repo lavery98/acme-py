@@ -164,22 +164,31 @@ def get_jwk(account_key):
 
     return jwk, thumbprint
 
-def create_jws(private_key, jwk, payload = {}):
-    header = {}
-    header["alg"] = "RS256"
-    header["jwk"] = jwk
+def create_jws(private_key, url, jwk=None, kid=None, payload = {}):
+    protected = {}
+    protected["alg"] = "RS256"
+    if jwk is not None:
+        protected["jwk"] = jwk
+    if kid is not None:
+        protected["kid"] = kid
+    protected["nonce"] = tostr(ACME_NONCE)
+    protected["url"] = url
+    #header = {}
+    #header["alg"] = "RS256"
+    #header["jwk"] = jwk
 
     payloaddata = tobase64(tojson(payload))
 
-    protected = {}
-    protected["nonce"] = tostr(ACME_NONCE)
+    #protected = {}
+    #protected["nonce"] = tostr(ACME_NONCE)
     protecteddata = tobase64(tojson(protected))
 
     signdata = "%s.%s" % (protecteddata, payloaddata)
     signature = ssl_rsa_signsha256(private_key, tobytes(signdata))
     signature = tobase64(signature)
 
-    return tojson({"header":header, "payload": payloaddata, "protected": protecteddata, "signature": signature})
+    #return tojson({"header":header, "payload": payloaddata, "protected": protecteddata, "signature": signature})
+    return tojson({"protected": protecteddata, "payload": payloaddata, "signature": signature})
 
 def httpquery(url = "", data = None, headers = {}, timeout = 60):
     LOGGER.debug("Sending a HTTP request to " + url)
@@ -235,19 +244,18 @@ def register_account(account_key, email, jwk, directory):
     # TODO: ask if user agrees to TOS
 
     payload = {
-        "resource": API_NEW_REG,
-        "agreement": directory[API_META]['terms-of-service'],
+        "terms-of-service-agreed": True
     }
 
     if email is not None:
         payload["contact"] = ["mailto:%s" % (email)]
 
-    jws = create_jws(account_key, jwk, payload)
+    jws = create_jws(account_key, directory[API_NEW_REG], jwk=jwk, payload=payload)
     response = httpquery(directory[API_NEW_REG], jws, {'content-type': 'application/json'})
 
     if response["status"] == 201:
         LOGGER.info("Registered!")
-    elif response["status"] == 409:
+    elif response["status"] == 200:
         LOGGER.info("Already registered!")
     else:
         raise Exception("Failed to register: %s" % (response["error"]))
@@ -413,25 +421,25 @@ def get_cert_dns(account_key, csr, email):
     register_account(account_key, email, jwk, directory)
 
     # get the challenges for each domain
-    challenges = get_challenges(account_key, jwk, thumbprint, directory, domains, "dns-01")
+    #challenges = get_challenges(account_key, jwk, thumbprint, directory, domains, "dns-01")
 
     # print out the DNS entries to be created
-    LOGGER.info("Add the following to your DNS zone file")
+    #LOGGER.info("Add the following to your DNS zone file")
 
-    for challenge in challenges:
-        dnskey = tobase64(hashlib.sha256(tobytes(challenge[2])).digest())
-        LOGGER.info("_acme-challenge." + challenge[0] + ". TXT " + dnskey)
+    #for challenge in challenges:
+    #    dnskey = tobase64(hashlib.sha256(tobytes(challenge[2])).digest())
+    #    LOGGER.info("_acme-challenge." + challenge[0] + ". TXT " + dnskey)
 
-    LOGGER.info("Press Enter to continue once you have added the DNS records")
-    raw_input()
+    #LOGGER.info("Press Enter to continue once you have added the DNS records")
+    #raw_input()
 
     # verify the challenges
-    verify_challenges(account_key, jwk, challenges)
+    #verify_challenges(account_key, jwk, challenges)
 
-    LOGGER.info("All the DNS records can now be removed")
+    #LOGGER.info("All the DNS records can now be removed")
 
     # get the certificate
-    crt, chain_url = get_crt(account_key, jwk, directory, csr)
+    #crt, chain_url = get_crt(account_key, jwk, directory, csr)
 
     return crt, chain_url
 
