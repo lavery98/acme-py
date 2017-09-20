@@ -27,6 +27,7 @@ CA_API_URL = "http://127.0.0.1:14000"
 API_DIR_NAME = "dir"
 API_META = "meta"
 API_NEW_REG = "new-account"
+API_NEW_ORDER = "new-order"
 API_NEW_AUTHZ = "new-authz"
 API_NEW_CERT = "new-cert"
 
@@ -173,21 +174,15 @@ def create_jws(private_key, url, jwk=None, kid=None, payload = {}):
         protected["kid"] = kid
     protected["nonce"] = tostr(ACME_NONCE)
     protected["url"] = url
-    #header = {}
-    #header["alg"] = "RS256"
-    #header["jwk"] = jwk
 
     payloaddata = tobase64(tojson(payload))
 
-    #protected = {}
-    #protected["nonce"] = tostr(ACME_NONCE)
     protecteddata = tobase64(tojson(protected))
 
     signdata = "%s.%s" % (protecteddata, payloaddata)
     signature = ssl_rsa_signsha256(private_key, tobytes(signdata))
     signature = tobase64(signature)
 
-    #return tojson({"header":header, "payload": payloaddata, "protected": protecteddata, "signature": signature})
     return tojson({"protected": protecteddata, "payload": payloaddata, "signature": signature})
 
 def httpquery(url = "", data = None, headers = {}, timeout = 60):
@@ -261,6 +256,23 @@ def register_account(account_key, email, jwk, directory):
         raise Exception("Failed to register: %s" % (response["error"]))
 
     return response
+
+def create_order(account_key, csr, kid, directory):
+    LOGGER.info("Creating new order...")
+
+    csr_data = ssl_get_csr(csr)
+
+    payload = {
+        "csr": tobase64(csr_data)
+    }
+
+    jws = create_jws(account_key, directory[API_NEW_ORDER], kid=kid, payload=payload)
+    response = httpquery(directory[API_NEW_ORDER], jws, {'content-type': 'application/json'})
+
+    if response["status"] != 201:
+        raise Exception("Failed to create a new order: %s" %s (response["error"]))
+
+    return response["jsonbody"]["authorizations"]
 
 def get_challenges(account_key, jwk, thumbprint, directory, domains, challenge_type):
     LOGGER.info("Getting challenges for each domain")
@@ -417,8 +429,13 @@ def get_cert_dns(account_key, csr, email):
     # get domains
     domains = parse_csr(csr)
 
-    # register an account on the server
-    register_account(account_key, email, jwk, directory)
+    # register an account on the server and get the kid
+    response = register_account(account_key, email, jwk, directory)
+    kid = response["headers"]["location"]
+
+    # create an order for the csr
+    auths = create_order(account_key, csr, kid, directory)
+    LOGGER.debug(auths)
 
     # get the challenges for each domain
     #challenges = get_challenges(account_key, jwk, thumbprint, directory, domains, "dns-01")
