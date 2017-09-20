@@ -248,23 +248,18 @@ def create_order(account_key, csr, kid, directory):
 
     return response["jsonbody"]["authorizations"]
 
-def get_challenges(account_key, jwk, thumbprint, directory, domains, challenge_type):
+def get_challenges(account_key, kid, thumbprint, directory, auths, challenge_type):
     LOGGER.info("Getting challenges for each domain")
     challenges = []
 
-    for domain in domains:
-        # get new challenge
-        LOGGER.debug("Getting challenge for " + domain + "...")
+    for auth in auths:
+        LOGGER.debug("Getting the auth " + auth + "...")
 
-        payload = {
-            "resource": API_NEW_AUTHZ,
-            "identifier": {"type": "dns", "value": domain},
-        }
-
-        jws = create_jws(account_key, jwk, payload)
-        response = httpquery(directory[API_NEW_AUTHZ], jws, {'content-type': 'application/json'})
-        if response["status"] != 201:
+        response = httpquery(auth)
+        if response["status"] != 200:
             raise Exception("Failed to get auth: %s" % (response["error"]))
+
+        LOGGER.debug("Got the auth for the domain " + response["jsonbody"]["identifier"]["value"])
 
         if response["jsonbody"]["status"] == "pending":
             for c in response["jsonbody"]["challenges"]:
@@ -273,7 +268,7 @@ def get_challenges(account_key, jwk, thumbprint, directory, domains, challenge_t
                     break
 
             keyauthorization = "%s.%s" % (challenge["token"], thumbprint)
-            challenges.append([domain, challenge, keyauthorization])
+            challenges.append([response["jsonbody"]["identifier"]["value"], challenge, keyauthorization])
 
     return challenges
 
@@ -406,10 +401,9 @@ def get_cert_dns(account_key, csr, email):
 
     # create an order for the csr
     auths = create_order(account_key, csr, kid, directory)
-    LOGGER.debug(auths)
 
     # get the challenges for each domain
-    #challenges = get_challenges(account_key, jwk, thumbprint, directory, domains, "dns-01")
+    challenges = get_challenges(account_key, kid, thumbprint, directory, auths, "dns-01")
 
     # print out the DNS entries to be created
     #LOGGER.info("Add the following to your DNS zone file")
