@@ -108,32 +108,6 @@ def ssl_rsa_signsha256(private_key, data):
 
     return out
 
-def ssl_read_csr(csr):
-    LOGGER.debug("Calling OpenSSL to read the provided certificate signing request")
-    proc = subprocess.Popen(["openssl", "req", "-in", csr, "-noout", "-text"],
-                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    out, err = proc.communicate()
-    if proc.returncode != 0:
-        raise IOError("OpenSSL Error: {0}".format(err))
-
-    domains = set([])
-    subject_alt_line = False
-
-    for line in tostr(out).split("\n"):
-        if line.strip()[0:12] == "Subject: CN=":
-            domains.add(line.strip()[12:])
-        if subject_alt_line:
-            subject_alt_line = False
-
-            for san in line.strip().split(", "):
-                if san.startswith("DNS:"):
-                    domains.add(san[4:])
-        if line.strip() == "X509v3 Subject Alternative Name:":
-            subject_alt_line = True
-
-    LOGGER.debug("Domains: " + str(domains))
-    return domains
-
 def ssl_get_csr(csr):
     LOGGER.debug("Calling OpenSSL to get the provided certificate signing request")
     proc = subprocess.Popen(["openssl", "req", "-in", csr, "-outform", "DER"],
@@ -425,9 +399,6 @@ def get_cert_dns(account_key, csr, email):
 
     # get the directory
     directory = get_directory()
-
-    # get domains
-    domains = parse_csr(csr)
 
     # register an account on the server and get the kid
     response = register_account(account_key, email, jwk, directory)
