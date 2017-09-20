@@ -28,7 +28,6 @@ API_DIR_NAME = "dir"
 API_META = "meta"
 API_NEW_REG = "new-account"
 API_NEW_ORDER = "new-order"
-API_NEW_AUTHZ = "new-authz"
 API_NEW_CERT = "new-cert"
 
 # Logger
@@ -272,27 +271,27 @@ def get_challenges(thumbprint, auths, challenge_type):
 
     return challenges
 
-def verify_challenges(account_key, jwk, challenges):
+def verify_challenges(account_key, kid, challenges):
     LOGGER.info("Verifying challenges...")
 
     for challenge in challenges:
         LOGGER.info("Verifying " + challenge[0] + "...")
 
         payload = {
-            "resource": "challenge",
             "keyAuthorization": challenge[2],
         }
 
-        jws = create_jws(account_key, jwk, payload)
+        jws = create_jws(account_key, kid=kid, payload=payload)
         response = httpquery(challenge[1]["uri"], jws, {'content-type': 'application/json'})
-        if response["status"] != 202:
+        if response["status"] != 200:
             raise Exception("Failed to verify challenge: %s" % (response["error"]))
 
+        # TODO: get retry time from server
         timeouts = [10, 100, 1000]
         success = False
         for timeout in timeouts:
             response = httpquery(challenge[1]["uri"])
-            if response["status"] != 202:
+            if response["status"] != 200:
                 raise Exception("Failed to verify challenge: %s" % (response["error"]))
 
             if response["jsonbody"]["status"] == "pending":
@@ -416,9 +415,9 @@ def get_cert_dns(account_key, csr, email):
     raw_input()
 
     # verify the challenges
-    #verify_challenges(account_key, jwk, challenges)
+    verify_challenges(account_key, kid, challenges)
 
-    #LOGGER.info("All the DNS records can now be removed")
+    LOGGER.info("All the DNS records can now be removed")
 
     # get the certificate
     #crt, chain_url = get_crt(account_key, jwk, directory, csr)
