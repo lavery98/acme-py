@@ -248,7 +248,7 @@ def create_order(account_key, csr, kid, directory):
 
     return response["jsonbody"]["authorizations"]
 
-def get_challenges(account_key, kid, thumbprint, directory, auths, challenge_type):
+def get_challenges(thumbprint, auths, challenge_type):
     LOGGER.info("Getting challenges for each domain")
     challenges = []
 
@@ -403,7 +403,7 @@ def get_cert_dns(account_key, csr, email):
     auths = create_order(account_key, csr, kid, directory)
 
     # get the challenges for each domain
-    challenges = get_challenges(account_key, kid, thumbprint, directory, auths, "dns-01")
+    challenges = get_challenges(thumbprint, auths, "dns-01")
 
     # print out the DNS entries to be created
     #LOGGER.info("Add the following to your DNS zone file")
