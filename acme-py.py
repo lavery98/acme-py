@@ -406,14 +406,14 @@ def get_cert_dns(account_key, csr, email):
     challenges = get_challenges(thumbprint, auths, "dns-01")
 
     # print out the DNS entries to be created
-    #LOGGER.info("Add the following to your DNS zone file")
+    LOGGER.info("Add the following to your DNS zone file")
 
-    #for challenge in challenges:
-    #    dnskey = tobase64(hashlib.sha256(tobytes(challenge[2])).digest())
-    #    LOGGER.info("_acme-challenge." + challenge[0] + ". TXT " + dnskey)
+    for challenge in challenges:
+        dnskey = tobase64(hashlib.sha256(tobytes(challenge[2])).digest())
+        LOGGER.info("_acme-challenge." + challenge[0] + ". TXT " + dnskey)
 
-    #LOGGER.info("Press Enter to continue once you have added the DNS records")
-    #raw_input()
+    LOGGER.info("Press Enter to continue once you have added the DNS records")
+    raw_input()
 
     # verify the challenges
     #verify_challenges(account_key, jwk, challenges)
