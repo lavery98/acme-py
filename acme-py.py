@@ -28,8 +28,7 @@ API_DIR_NAME = "directory"
 API_META = "meta"
 API_NEW_NONCE = "newNonce"
 API_NEW_REG = "newAccount"
-API_NEW_ORDER = "new-order"
-API_NEW_CERT = "new-cert"
+API_NEW_ORDER = "newOrder"
 
 # Logger
 LOGGER = logging.getLogger(__name__)
@@ -255,22 +254,25 @@ def register_account(account_key, email, jwk, directory):
 
     return response
 
-def create_order(account_key, csr, kid, directory):
+def create_order(account_key, domains, kid, directory):
     LOGGER.info("Creating new order...")
 
-    csr_data = ssl_get_csr(csr)
+    identifiers = []
+
+    for domain in domains:
+        identifiers.append({"type":"dns","value":domain})
 
     payload = {
-        "csr": tobase64(csr_data)
+        "identifiers": identifiers
     }
 
     jws = create_jws(account_key, directory[API_NEW_ORDER], kid=kid, payload=payload)
     response = httpquery(directory[API_NEW_ORDER], jws, {'content-type': 'application/json'})
 
     if response["status"] != 201:
-        raise Exception("Failed to create a new order: %s" %s (response["error"]))
+        raise Exception("Failed to create a new order: %s" % (response["error"]))
 
-    return response["jsonbody"]["authorizations"]
+    return response["jsonbody"]["authorizations"], response["jsonbody"]["finalize"]
 
 def get_challenges(thumbprint, auths, challenge_type):
     LOGGER.info("Getting challenges for each domain")
@@ -423,8 +425,11 @@ def get_cert_dns(account_key, csr, email):
     response = register_account(account_key, email, jwk, directory)
     kid = response["headers"]["location"]
 
+    # get domains
+    domains = ssl_get_domains(csr)
+
     # create an order for the csr
-    auths = create_order(account_key, csr, kid, directory)
+    auths, order = create_order(account_key, domains, kid, directory)
 
     # get the challenges for each domain
     challenges = get_challenges(thumbprint, auths, "dns-01")
