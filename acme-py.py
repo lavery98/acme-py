@@ -27,7 +27,7 @@ CA_API_URL = "http://acme-staging-v02.api.letsencrypt.org"
 API_DIR_NAME = "directory"
 API_META = "meta"
 API_NEW_NONCE = "newNonce"
-API_NEW_REG = "new-account"
+API_NEW_REG = "newAccount"
 API_NEW_ORDER = "new-order"
 API_NEW_CERT = "new-cert"
 
