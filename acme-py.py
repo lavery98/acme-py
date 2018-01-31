@@ -298,18 +298,19 @@ def get_challenges(thumbprint, auths, challenge_type):
 
     return challenges
 
-def verify_challenges(account_key, kid, challenges):
+def verify_challenges(account_key, kid, challenges, challenge_type):
     LOGGER.info("Verifying challenges...")
 
     for challenge in challenges:
         LOGGER.info("Verifying " + challenge[0] + "...")
 
         payload = {
+            "type": challenge_type,
             "keyAuthorization": challenge[2],
         }
 
-        jws = create_jws(account_key, kid=kid, payload=payload)
-        response = httpquery(challenge[1]["uri"], jws, {'content-type': 'application/json'})
+        jws = create_jws(account_key, challenge[1]["url"], kid=kid, payload=payload)
+        response = httpquery(challenge[1]["url"], jws, {'content-type': 'application/json'})
         if response["status"] != 200:
             raise Exception("Failed to verify challenge: %s" % (response["error"]))
 
@@ -317,7 +318,7 @@ def verify_challenges(account_key, kid, challenges):
         timeouts = [10, 100, 1000]
         success = False
         for timeout in timeouts:
-            response = httpquery(challenge[1]["uri"])
+            response = httpquery(challenge[1]["url"])
             if response["status"] != 200:
                 raise Exception("Failed to verify challenge: %s" % (response["error"]))
 
@@ -445,7 +446,7 @@ def get_cert_dns(account_key, csr, email):
     raw_input()
 
     # verify the challenges
-    verify_challenges(account_key, kid, challenges)
+    verify_challenges(account_key, kid, challenges, "dns-01")
 
     LOGGER.info("All the DNS records can now be removed")
 
