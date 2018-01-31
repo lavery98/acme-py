@@ -117,6 +117,27 @@ def ssl_get_csr(csr):
         raise IOError("OpenSSL Error: {0}".format(err))
     return out
 
+def ssl_get_domains(csr):
+    LOGGER.debug("Calling OpenSSL to get the domains in the provided certificate signing request")
+    proc = subprocess.Popen(["openssl", "req", "-in", csr, "-noout", "-text"],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = proc.communicate()
+    if proc.returncode != 0:
+        raise IOError("OpenSSL Error: {0}".format(err))
+
+    domains = set([])
+    common_name = re.search(r"Subject:.*? CN=([^\s,;/]+)", out.decode("utf8"))
+    if common_name is not None:
+        domains.add(common_name.group(1))
+
+    alt_names = re.search(r"X509v3 Subject Alternative Name: \n +([^\n]+)\n", out.decode("utf8"), re.MULTILINE|re.DOTALL)
+    if alt_names is not None:
+        for name in alt_names.group(1).split(", "):
+            if name.startswith("DNS:"):
+                domains.add(name[4:])
+
+    return domains
+
 def get_jwk(account_key):
     # parse account key to get public key
     LOGGER.info("Parsing account key...")
