@@ -26,6 +26,7 @@ except ImportError:
 CA_API_URL = "http://acme-staging-v02.api.letsencrypt.org"
 API_DIR_NAME = "directory"
 API_META = "meta"
+API_NEW_NONCE = "newNonce"
 API_NEW_REG = "new-account"
 API_NEW_ORDER = "new-order"
 API_NEW_CERT = "new-cert"
@@ -189,8 +190,8 @@ def httpquery(url = "", data = None, headers = {}, timeout = 60):
 
     LOGGER.debug("Response: " + str(response))
 
-    global ACME_NONCE
-    ACME_NONCE = response["headers"]["replay-nonce"]
+    #global ACME_NONCE
+    #ACME_NONCE = response["headers"]["replay-nonce"]
     return response
 
 def get_directory():
@@ -199,6 +200,13 @@ def get_directory():
     if response["status"] != 200:
         raise Exception("ACME query for directory failed: %s" % (response["error"]))
     return response["jsonbody"]
+
+def get_nonce(directory):
+    LOGGER.debug("Asking server for a nonce")
+    response = httpquery(directory[API_NEW_NONCE])
+    if response["status"] != 204:
+        raise Exception("ACME query for new nonce failed: %s" % (response["error"]))
+    return response["headers"]["replay-nonce"]
 
 def parse_csr(csr):
     LOGGER.info("Parsing CSR...")
@@ -393,6 +401,9 @@ def get_cert_dns(account_key, csr, email):
 
     # get the directory
     directory = get_directory()
+
+    # get nonce
+    nonce = get_nonce(directory)
 
     # register an account on the server and get the kid
     response = register_account(account_key, email, jwk, directory)
