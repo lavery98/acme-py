@@ -485,8 +485,7 @@ def main(argv):
                 write_file(args.chain, intermediate)
 
             if args.chained:
-                write_file(args.chained, crt)
-                write_file(args.chained, intermediate)
+                write_file(args.chained, crt + intermediate)
 
         if args.cert:
             write_file(args.cert, crt)
