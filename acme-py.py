@@ -12,6 +12,7 @@ import hashlib
 import re
 import textwrap
 import logging
+import ssl
 
 try:
     from urllib.request import urlopen
@@ -374,7 +375,8 @@ def get_cert_http(account_key, csr, email, acme_dir):
         # check file is in place
         wellknown_url = "http://%s/.well-known/acme-challenge/%s" % (challenge[0], challenge[1]["token"])
         try:
-            response = urlopen(wellknown_url)
+            context = ssl._create_unverified_context()
+            response = urlopen(wellknown_url, context=context)
             response_data = tostr(response.read()).strip()
             assert response_data == challenge[2]
         except (IOError, AssertionError):
